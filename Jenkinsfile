@@ -30,10 +30,9 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
-            steps {
-                sh 'docker-compose up -d'
-            }
-        }
+      stage('Deploy') {
+    steps {
+        sh 'docker-compose down --remove-orphans || true'
+        sh 'docker-compose up -d' 
     }
 }
