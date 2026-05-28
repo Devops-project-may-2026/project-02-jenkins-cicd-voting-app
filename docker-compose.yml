@@ -19,7 +19,6 @@ services:
     networks:
       - front-tier
       - back-tier
-
   result:
     build: ./result
     entrypoint: nodemon --inspect=0.0.0.0 server.js
@@ -34,7 +33,6 @@ services:
     networks:
       - front-tier
       - back-tier
-
   worker:
     build:
       context: ./worker
@@ -45,27 +43,24 @@ services:
         condition: service_healthy
     networks:
       - back-tier
-
   redis:
     image: redis:alpine
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+                                                                                    retries: 5
+    networks:
+                                      tgres:15-alpine
+    environment:
+                              "
+      POSTGRES_PASSWORD      POSTGRES_PASSWORD      POSTGRES_PASSWORDr/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
       - back-tier
-
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASS      POSTGRES_PASS      POSTGRES_PASS      POSTGRr/lib/postgresql/data"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U po      test:        test: ["CMD-SHELLmeout:   
-      r      r      r  tworks:
-      -       -    volumes:
+volumes:
   db-data:
-
-networnetworneont-tier:
+networks:
+  front-tier:
   back-tier:
