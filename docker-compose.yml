@@ -47,16 +47,22 @@ services:
     image: redis:alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      inter      inter      iout: 5s
-               5
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - back-tier
   db:
-    image: postgr    imageine
-    image: postgr    imageine
-utUSEutUSEutUSEutU    utUSEutUSEutUSEutU    utUSEutUSEutUSEutU    utUSEutUSEutUSEuarutUSEutUSEutsql/data
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"      test: ["CMD-SHELL",timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
       retries: 5
     networks:
       - back-tier
