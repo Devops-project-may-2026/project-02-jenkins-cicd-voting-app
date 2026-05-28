@@ -27,12 +27,9 @@ pipeline {
                 sh 'docker push $DOCKER_HUB_USERNAME/vote:latest'
                 sh 'docker push $DOCKER_HUB_USERNAME/result:latest'
                 sh 'docker push $DOCKER_HUB_USERNAME/worker:latest'
+                                                                                       sh 'docker-compose down --remove-orphans || true'
+                sh 'docker-compose up -d'
             }
         }
-
-      stage('Deploy') {
-    steps {
-        sh 'docker-compose down --remove-orphans || true'
-        sh 'docker-compose up -d' 
     }
 }
