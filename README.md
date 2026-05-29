@@ -50,11 +50,11 @@ kubectl delete -f k8s-specifications/
 
 ![Architecture diagram](architecture.excalidraw.png)
 
-* A front-end web app in [Python](/vote) which lets you vote between two options
-* A [Redis](https://hub.docker.com/_/redis/) which collects new votes
-* A [.NET](/worker/) worker which consumes votes and stores them in…
-* A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
-* A [Node.js](/result) web app which shows the results of the voting in real time
+- A front-end web app in [Python](/vote) which lets you vote between two options
+- A [Redis](https://hub.docker.com/_/redis/) which collects new votes
+- A [.NET](/worker/) worker which consumes votes and stores them in…
+- A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
+- A [Node.js](/result) web app which shows the results of the voting in real time
 
 ## Notes
 
@@ -63,3 +63,32 @@ The voting application only accepts one vote per client browser. It does not reg
 This isn't an example of a properly architected perfectly designed distributed app... it's just a simple
 example of the various types of pieces and languages you might see (queues, persistent data, etc), and how to
 deal with them in Docker at a basic level.
+
+## Epic 2: Jenkins Pipeline Setup
+
+Epic 2 focuses on provisioning Jenkins and creating the first CI/CD pipeline skeleton.
+
+Completed work:
+
+- Provisioned Jenkins server on AWS EC2
+- Installed Java 21, Jenkins, Docker, and Docker Compose
+- Created Jenkins Pipeline job connected to GitHub
+- Added Jenkinsfile with basic stages:
+  - Checkout
+  - Validate Docker Compose
+  - Build
+  - Basic Tests
+  - Create Build Artifact
+- Verified successful Jenkins pipeline run
+- Archived basic build artifacts in Jenkins
+- Configured GitHub webhook
+- Confirmed that push events automatically trigger Jenkins builds
+
+Validation:
+
+- Jenkins Build #3 completed successfully manually
+- Jenkins Build #4 was triggered automatically by GitHub webhook and completed successfully
+
+Security note:
+
+No passwords, tokens, private keys, or Jenkins admin credentials are stored in this repository.
