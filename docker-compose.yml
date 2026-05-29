@@ -15,7 +15,7 @@ services:
     volumes:
      - ./vote:/usr/local/app
     ports:
-      - "50000:80"
+      - "8090:80"
     networks:
       - front-tier
       - back-tier
