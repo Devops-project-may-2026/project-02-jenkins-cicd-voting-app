@@ -18,7 +18,7 @@ pipeline {
                     GIT_SHA=$(git rev-parse --short HEAD)
                     docker build -t ${DOCKER_USER}/voting-vote:${GIT_SHA} -t ${DOCKER_USER}/voting-vote:latest ./vote
                     docker build -t ${DOCKER_USER}/voting-result:${GIT_SHA} -t ${DOCKER_USER}/voting-result:latest ./result
-                    docker build -t ${DOCKER_USER}/voting-worker:${GIT_SHA} -t ${DOCKER_USER}/voting-worker:latest ./worker
+                    docker build --platform linux/amd64 -t ${DOCKER_USER}/voting-worker:${GIT_SHA} -t ${DOCKER_USER}/voting-worker:latest ./worker
                 '''
             }
         }
