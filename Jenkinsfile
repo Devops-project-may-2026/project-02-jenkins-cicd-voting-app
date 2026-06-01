@@ -23,9 +23,10 @@ pipeline {
             }
         }
 
-        stage('Basic Tests') {
+        stage('Structure Validation') {
             steps {
                 echo 'Running basic project checks...'
+                // TODO: replace with real unit/integration tests in Epic 3
                 sh 'test -f docker-compose.yml'
                 sh 'test -d vote'
                 sh 'test -d result'
