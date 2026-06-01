@@ -2,8 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_HUB_CREDENTIALS = credentials('dockerhub')
-        DOCKER_HUB_USERNAME = 'marta77784'
+        DOCKER_USER = 'marta77784'
     }
 
     stages {
@@ -13,27 +12,52 @@ pipeline {
             }
         }
 
-        stage('Build Images') {
+        stage('Build') {
             steps {
-                sh 'docker build -t $DOCKER_HUB_USERNAME/vote:latest ./vote'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/result:latest ./result'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/worker:latest ./worker'
+                sh '''
+                    GIT_SHA=$(git rev-parse --short HEAD)
+                    docker build -t ${DOCKER_USER}/voting-vote:${GIT_SHA} -t ${DOCKER_USER}/voting-vote:latest ./vote
+                    docker build -t ${DOCKER_USER}/voting-result:${GIT_SHA} -t ${DOCKER_USER}/voting-result:latest ./result
+                    docker build -t ${DOCKER_USER}/voting-worker:${GIT_SHA} -t ${DOCKER_USER}/voting-worker:latest ./worker
+                '''
             }
         }
 
-        stage('Push Images') {
+        stage('Push') {
             steps {
-                sh 'echo $DOCKER_HUB_CREDENTIALS_PSW | docker login -u $DOCKER_HUB_USERNAME --password-stdin'
-                sh 'docker push $DOCKER_HUB_USERNAME/vote:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/result:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/worker:latest'
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        GIT_SHA=$(git rev-parse --short HEAD)
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+                        docker push ${DOCKER_USER}/voting-vote:${GIT_SHA}
+                        docker push ${DOCKER_USER}/voting-vote:latest
+                        docker push ${DOCKER_USER}/voting-result:${GIT_SHA}
+                        docker push ${DOCKER_USER}/voting-result:latest
+                        docker push ${DOCKER_USER}/voting-worker:${GIT_SHA}
+                        docker push ${DOCKER_USER}/voting-worker:latest
+                        docker logout
+                    '''
+                }
             }
         }
+    }
 
-        stage('Deploy') {
-            steps {
-                sh 'docker compose up -d'
-            }
+    post {
+        always {
+            sh '''
+                GIT_SHA=$(git rev-parse --short HEAD)
+                mkdir -p artifacts
+                echo "Build: ${BUILD_NUMBER}" > artifacts/build-info.txt
+                echo "Git SHA: ${GIT_SHA}" >> artifacts/build-info.txt
+                echo "Published images:" >> artifacts/build-info.txt
+                echo "  marta77784/voting-vote:${GIT_SHA}" >> artifacts/build-info.txt
+                echo "  marta77784/voting-result:${GIT_SHA}" >> artifacts/build-info.txt
+                echo "  marta77784/voting-worker:${GIT_SHA}" >> artifacts/build-info.txt
+                echo "marta77784/voting-vote:${GIT_SHA}" > artifacts/images.txt
+                echo "marta77784/voting-result:${GIT_SHA}" >> artifacts/images.txt
+                echo "marta77784/voting-worker:${GIT_SHA}" >> artifacts/images.txt
+            '''
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
         }
     }
 }
