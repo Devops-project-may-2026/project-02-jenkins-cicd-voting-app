@@ -4,60 +4,61 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
+                echo 'Checking out source code from GitHub...'
                 checkout scm
+            }
+        }
+
+        stage('Validate Docker Compose') {
+            steps {
+                echo 'Validating docker-compose.yml file...'
+                sh 'docker compose config'
             }
         }
 
         stage('Build') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh '''
-                        GIT_SHA=$(git rev-parse --short HEAD)
-                        docker build -t ${DOCKER_USERNAME}/voting-vote:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-vote:latest ./vote
-                        docker build -t ${DOCKER_USERNAME}/voting-result:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-result:latest ./result
-                        docker build --platform linux/amd64 -t ${DOCKER_USERNAME}/voting-worker:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-worker:latest ./worker
-                    '''
-                }
+                echo 'Building application services with Docker Compose...'
+                sh 'docker compose build'
             }
         }
 
-        stage('Push') {
+        stage('Structure Validation') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh '''
-                        GIT_SHA=$(git rev-parse --short HEAD)
-                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
-                        docker push ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}
-                        docker push ${DOCKER_USERNAME}/voting-vote:latest
-                        docker push ${DOCKER_USERNAME}/voting-result:${GIT_SHA}
-                        docker push ${DOCKER_USERNAME}/voting-result:latest
-                        docker push ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}
-                        docker push ${DOCKER_USERNAME}/voting-worker:latest
-                        docker logout
-                    '''
-                }
+                echo 'Running basic project checks...'
+                // TODO: replace with real unit/integration tests in Epic 3
+                sh 'test -f docker-compose.yml'
+                sh 'test -d vote'
+                sh 'test -d result'
+                sh 'test -d worker'
+            }
+        }
+
+        stage('Create Build Artifact') {
+            steps {
+                echo 'Creating basic build artifact...'
+                sh '''
+                    mkdir -p artifacts
+                    echo "Build Number: ${BUILD_NUMBER}" > artifacts/build-info.txt
+                    echo "Git Branch: ${BRANCH_NAME}" >> artifacts/build-info.txt
+                    echo "Build completed at: $(date)" >> artifacts/build-info.txt
+                    docker compose config > artifacts/docker-compose-config.txt
+                '''
             }
         }
     }
 
     post {
         always {
-            withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                sh '''
-                    GIT_SHA=$(git rev-parse --short HEAD)
-                    mkdir -p artifacts
-                    echo "Build: ${BUILD_NUMBER}" > artifacts/build-info.txt
-                    echo "Git SHA: ${GIT_SHA}" >> artifacts/build-info.txt
-                    echo "Published images:" >> artifacts/build-info.txt
-                    echo "  ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" >> artifacts/build-info.txt
-                    echo "  ${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/build-info.txt
-                    echo "  ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/build-info.txt
-                    echo "${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" > artifacts/images.txt
-                    echo "${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/images.txt
-                    echo "${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/images.txt
-                '''
-            }
-            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'artifacts/*.txt', fingerprint: true
+        }
+
+        success {
+            echo 'Pipeline completed successfully.'
+        }
+
+        failure {
+            echo 'Pipeline failed.'
         }
     }
 }
