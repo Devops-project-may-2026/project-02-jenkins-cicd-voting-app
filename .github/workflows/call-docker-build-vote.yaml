@@ -21,7 +21,7 @@ jobs:
     uses: dockersamples/.github/.github/workflows/reusable-docker-build.yaml@main
     permissions:
       contents: read
-      packages: read
+      packages: write
       pull-requests: write
     with:
       dockerhub-enable: false
