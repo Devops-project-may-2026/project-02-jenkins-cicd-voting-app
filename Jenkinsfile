@@ -40,15 +40,14 @@ pipeline {
                 sh '''
                     mkdir -p trivy-reports
 
-                    for service in vote result worker; do
-                        image_id=$(docker compose images -q $service)
+                    for image in \
+                        project-02-jenkins-cicd-voting-app-vote:latest \
+                        project-02-jenkins-cicd-voting-app-result:latest \
+                        project-02-jenkins-cicd-voting-app-worker:latest
+                    do
+                        report_name=$(echo "$image" | sed 's/project-02-jenkins-cicd-voting-app-//; s/:latest//')
 
-                        if [ -z "$image_id" ]; then
-                            echo "No image found for service: $service"
-                            exit 1
-                        fi
-
-                        echo "Scanning $service image: $image_id"
+                        echo "Scanning image: $image"
 
                         docker run --rm \
                             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -57,8 +56,8 @@ pipeline {
                             --severity HIGH,CRITICAL \
                             --format table \
                             --exit-code 0 \
-                            -o /reports/${service}-trivy-report.txt \
-                            $image_id
+                            -o /reports/${report_name}-trivy-report.txt \
+                            $image
                     done
                 '''
             }
@@ -68,17 +67,19 @@ pipeline {
             steps {
                 echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
                 sh '''
-                    for service in vote result worker; do
-                        image_id=$(docker compose images -q $service)
-
-                        echo "Checking security gate for $service image: $image_id"
+                    for image in \
+                        project-02-jenkins-cicd-voting-app-vote:latest \
+                        project-02-jenkins-cicd-voting-app-result:latest \
+                        project-02-jenkins-cicd-voting-app-worker:latest
+                    do
+                        echo "Checking security gate for image: $image"
 
                         docker run --rm \
                             -v /var/run/docker.sock:/var/run/docker.sock \
                             aquasec/trivy:latest image \
                             --severity HIGH,CRITICAL \
                             --exit-code 1 \
-                            $image_id
+                            $image
                     done
                 '''
             }
