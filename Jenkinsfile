@@ -16,21 +16,71 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build Docker Images') {
             steps {
                 echo 'Building application services with Docker Compose...'
-                sh 'docker compose build'
+                sh 'docker compose build vote result worker'
             }
         }
 
         stage('Structure Validation') {
             steps {
-                echo 'Running basic project checks...'
-                // TODO: replace with real unit/integration tests in Epic 3
+                echo 'Running basic project structure validation...'
+                // TODO: replace with real unit/integration tests in a future epic
                 sh 'test -f docker-compose.yml'
                 sh 'test -d vote'
                 sh 'test -d result'
                 sh 'test -d worker'
+            }
+        }
+
+        stage('Trivy Security Scan Reports') {
+            steps {
+                echo 'Running Trivy scans and saving reports...'
+                sh '''
+                    mkdir -p trivy-reports
+
+                    for service in vote result worker; do
+                        image_id=$(docker compose images -q $service)
+
+                        if [ -z "$image_id" ]; then
+                            echo "No image found for service: $service"
+                            exit 1
+                        fi
+
+                        echo "Scanning $service image: $image_id"
+
+                        docker run --rm \
+                            -v /var/run/docker.sock:/var/run/docker.sock \
+                            -v "$WORKSPACE/trivy-reports:/reports" \
+                            aquasec/trivy:latest image \
+                            --severity HIGH,CRITICAL \
+                            --format table \
+                            --exit-code 0 \
+                            -o /reports/${service}-trivy-report.txt \
+                            $image_id
+                    done
+                '''
+            }
+        }
+
+        stage('Trivy Security Gate') {
+            steps {
+                echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
+                sh '''
+                    for service in vote result worker; do
+                        image_id=$(docker compose images -q $service)
+
+                        echo "Checking security gate for $service image: $image_id"
+
+                        docker run --rm \
+                            -v /var/run/docker.sock:/var/run/docker.sock \
+                            aquasec/trivy:latest image \
+                            --severity HIGH,CRITICAL \
+                            --exit-code 1 \
+                            $image_id
+                    done
+                '''
             }
         }
 
@@ -50,7 +100,8 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'artifacts/*.txt', fingerprint: true
+            archiveArtifacts artifacts: 'artifacts/*.txt', fingerprint: true, allowEmptyArchive: true
+            archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true, allowEmptyArchive: true
         }
 
         success {
