@@ -111,3 +111,45 @@ Archived reports:
 - `worker-trivy-report.txt`
 
 No security scan reports are committed to the repository. Reports are generated during Jenkins pipeline execution and archived in Jenkins.
+
+
+---
+
+## CI/CD Architecture
+
+This repository uses two complementary CI systems that serve different purposes:
+
+| Layer | System | Registry | Trigger | Purpose |
+| --- | --- | --- | --- | --- |
+| Build validation (PR) | GitHub Actions | None — build only | PR opened / updated | Confirms the Dockerfile builds without errors before code lands on main |
+| Image push (merge to main) | GitHub Actions | GHCR (`ghcr.io/<org>/voting-<service>`) | Push to main | Publishes a versioned image to the org package registry |
+| Full Jenkins pipeline | Jenkins (personal EC2) | Docker Hub (`<your-username>/voting-<service>`) | GitHub webhook or manual | Runs the full build → scan → push cycle on your own infrastructure |
+
+GitHub Actions and Jenkins are **not duplicates** — GHA is the shared CI gate for the repository, Jenkins is the personal DevOps pipeline each engineer operates on their own instance.
+
+---
+
+## Jenkins Pipeline Stages
+
+| Stage | What it does |
+| --- | --- |
+| Checkout | Pulls source from GitHub via `checkout scm` |
+| Validate Docker Compose | Runs `docker compose config` to verify the compose file is valid |
+| Structure Validation | Checks that expected service directories exist |
+| Build | Builds `vote`, `result`, and `worker` images tagged with `<username>/voting-<service>:<git-sha>` and `:latest` |
+| Trivy Security Scan Reports | Scans each image with Trivy (Docker-in-Docker); saves reports to `trivy-reports/` as Jenkins artifacts |
+| Trivy Security Gate | Re-runs Trivy with `--exit-code 1`; fails the pipeline if any HIGH or CRITICAL CVEs are found |
+| Push | Pushes both tags to Docker Hub; calls `docker logout` after |
+
+---
+
+## Security Gate Policy (Epic 4)
+
+Trivy runs in Docker-in-Docker mode — no host installation required. The Jenkins user already has Docker socket access (configured during Epic 2 setup via `usermod -aG docker jenkins`).
+
+- Images are scanned **after build, before push** — a vulnerable image never reaches the registry
+- Pipeline fails on **HIGH or CRITICAL** severity findings
+- Scan reports are archived as Jenkins build artifacts in `trivy-reports/`
+- First Trivy run pulls `aquasec/trivy:latest` and downloads the vulnerability database (slow); subsequent runs use the cached image
+
+To reproduce: configure `dockerhub-credentials` in Jenkins (see `docs/jenkins-setup.md`), then trigger a build. Trivy will run automatically as part of the pipeline.
