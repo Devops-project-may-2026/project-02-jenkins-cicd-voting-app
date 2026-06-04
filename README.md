@@ -92,3 +92,22 @@ Validation:
 Security note:
 
 No passwords, tokens, private keys, or Jenkins admin credentials are stored in this repository.
+
+## Epic 4: Security Gates with Trivy
+
+Epic 4 adds container image security scanning to the Jenkins pipeline using Trivy.
+
+Security policy:
+
+- Jenkins builds Docker images for `vote`, `result`, and `worker`
+- Trivy scans each image for vulnerabilities
+- Reports are saved as Jenkins build artifacts
+- Pipeline fails if Trivy finds HIGH or CRITICAL vulnerabilities
+
+Archived reports:
+
+- `vote-trivy-report.txt`
+- `result-trivy-report.txt`
+- `worker-trivy-report.txt`
+
+No security scan reports are committed to the repository. Reports are generated during Jenkins pipeline execution and archived in Jenkins.

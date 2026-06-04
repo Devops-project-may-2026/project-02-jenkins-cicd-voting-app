@@ -40,6 +40,51 @@ pipeline {
             }
         }
 
+        stage('Trivy Security Scan Reports') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Running Trivy scans and saving reports...'
+                    sh '''
+                        mkdir -p trivy-reports
+
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Scanning image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                -v "$WORKSPACE/trivy-reports:/reports" \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --format table \
+                                --exit-code 0 \
+                                -o /reports/${service}-trivy-report.txt \
+                                $image
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Trivy Security Gate') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
+                    sh '''
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Checking security gate for image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --exit-code 1 \
+                                $image
+                        done
+                    '''
+                }
+            }
+        }
+
         stage('Push') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
@@ -77,6 +122,7 @@ pipeline {
                 '''
             }
             archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true, allowEmptyArchive: true
         }
 
         success {
