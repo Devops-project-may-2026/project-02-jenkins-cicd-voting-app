@@ -2,38 +2,45 @@
 
 echo "Starting Blue-Green deployment..."
 
-# Определяем текущую и целевую среду
-CURRENT="blue"
-TARGET="green"
+# Detect which environment is currently active by reading nginx config.
+# This ensures we always deploy to the INACTIVE environment.
+if grep -q "8180" /etc/nginx/sites-available/voting-app 2>/dev/null; then
+    CURRENT="green"
+    TARGET="blue"
+else
+    # Default: assume blue is active (first deploy or no nginx config yet)
+    CURRENT="blue"
+    TARGET="green"
+fi
 
 echo "Current: $CURRENT | Target: $TARGET"
 
-# Шаг 1 — Запускаем Green
+# Step 1 - Start the target environment
 echo "Starting $TARGET environment..."
-docker compose -f blue-green/docker-compose.green.yml up -d
+docker compose -f blue-green/docker-compose.${TARGET}.yml up -d
 
-# Шаг 2 — Ждём 10 секунд пока поднимется
+# Step 2 - Wait for containers to be ready
 echo "Waiting for $TARGET to start..."
 sleep 10
 
-# Шаг 3 — Запускаем smoke tests
+# Step 3 - Run smoke tests
 echo "Running smoke tests..."
 bash blue-green/smoke-test.sh $TARGET
 
 if [ $? -eq 0 ]; then
-  # Тесты прошли — переключаем трафик
-  echo "Smoke tests passed! Switching traffic to $TARGET..."
-  bash blue-green/switch-traffic.sh $CURRENT $TARGET
-  
-  # Останавливаем Blue
-  echo "Stopping $CURRENT environment..."
-  docker compose -f blue-green/docker-compose.blue.yml down
-  
-  echo "✅ Deployment successful! Running on $TARGET"
+    # Tests passed - switch nginx traffic to target
+    echo "Smoke tests passed! Switching traffic to $TARGET..."
+    sudo bash blue-green/switch-traffic.sh $CURRENT $TARGET
+
+    # Tear down the old environment
+    echo "Stopping $CURRENT environment..."
+    docker compose -f blue-green/docker-compose.${CURRENT}.yml down
+
+    echo "Deployment successful! Now running on $TARGET"
 else
-  # Тесты провалились — откат
-  echo "❌ Smoke tests failed! Rolling back to $CURRENT..."
-  docker compose -f blue-green/docker-compose.green.yml down
-  echo "✅ Rollback complete! Still running on $CURRENT"
-  exit 1
+    # Tests failed - roll back by tearing down target, current stays live
+    echo "Smoke tests failed! Rolling back to $CURRENT..."
+    docker compose -f blue-green/docker-compose.${TARGET}.yml down
+    echo "Rollback complete! Still running on $CURRENT"
+    exit 1
 fi
