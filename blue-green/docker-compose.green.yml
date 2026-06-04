@@ -1,21 +1,21 @@
 version: '3'
 services:
   vote-green:
-    image: marta77784/voting-vote:latest
+    image: ${DOCKER_USERNAME}/voting-vote:latest
     ports:
       - "8180:80"
     networks:
       - green-net
 
   result-green:
-    image: marta77784/voting-result:latest
+    image: ${DOCKER_USERNAME}/voting-result:latest
     ports:
       - "8181:80"
     networks:
       - green-net
 
   worker-green:
-    image: marta77784/voting-worker:latest
+    image: ${DOCKER_USERNAME}/voting-worker:latest
     networks:
       - green-net
 

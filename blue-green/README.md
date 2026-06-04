@@ -51,4 +51,4 @@ sudo bash ~/blue-green/switch-traffic.sh green blue
 - AWS EC2: Ubuntu 24.04, t2.medium
 - Docker: 29.1.3
 - Nginx: latest
-- Deployment host: 18.207.125.109
+- Deployment host: YOUR_DEPLOY_HOST_IP
