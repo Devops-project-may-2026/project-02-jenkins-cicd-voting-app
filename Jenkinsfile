@@ -1,35 +1,150 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER_HUB_CREDENTIALS = credentials('dockerhub')
-        DOCKER_HUB_USERNAME = 'marta77784'
-    }
-
     stages {
         stage('Checkout') {
             steps {
+                echo 'Checking out source code from GitHub...'
                 checkout scm
             }
         }
 
-        stage('Build Images') {
+        stage('Validate Docker Compose') {
             steps {
-                sh 'docker build -t $DOCKER_HUB_USERNAME/vote:latest ./vote'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/result:latest ./result'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/worker:latest ./worker'
+                echo 'Validating docker-compose.yml file...'
+                sh 'docker compose config'
             }
         }
 
-        stage('Push Images') {
+        stage('Structure Validation') {
             steps {
-                sh 'echo $DOCKER_HUB_CREDENTIALS_PSW | docker login -u $DOCKER_HUB_USERNAME --password-stdin'
-                sh 'docker push $DOCKER_HUB_USERNAME/vote:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/result:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/worker:latest'
-                                                                                       sh 'docker-compose down --remove-orphans || true'
-                sh 'docker-compose up -d'
+                echo 'Validating project structure...'
+                // TODO: replace with real unit/integration tests in Epic 4
+                sh 'test -f docker-compose.yml'
+                sh 'test -d vote'
+                sh 'test -d result'
+                sh 'test -d worker'
             }
+        }
+
+        stage('Build') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        GIT_SHA=$(git rev-parse --short HEAD)
+                        docker build -t ${DOCKER_USERNAME}/voting-vote:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-vote:latest ./vote
+                        docker build -t ${DOCKER_USERNAME}/voting-result:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-result:latest ./result
+                        docker build --platform linux/amd64 -t ${DOCKER_USERNAME}/voting-worker:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-worker:latest ./worker
+                    '''
+                }
+            }
+        }
+
+        stage('Trivy Security Scan Reports') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Running Trivy scans and saving reports...'
+                    sh '''
+                        mkdir -p trivy-reports
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Scanning image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                -v "$WORKSPACE/trivy-reports:/reports" \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --format table \
+                                --exit-code 0 \
+                                -o /reports/${service}-trivy-report.txt \
+                                $image
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Trivy Security Gate') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
+                    sh '''
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Checking security gate for image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --exit-code 1 \
+                                $image
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        GIT_SHA=$(git rev-parse --short HEAD)
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+                        docker push ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-vote:latest
+                        docker push ${DOCKER_USERNAME}/voting-result:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-result:latest
+                        docker push ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-worker:latest
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sshagent(credentials: ['deploy-host-ssh']) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no ubuntu@${DEPLOY_HOST} \
+                                "cd ~/project-02-jenkins-cicd-voting-app && \
+                                 export DOCKER_USERNAME=${DOCKER_USERNAME} && \
+                                 bash blue-green/deploy.sh"
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                sh '''
+                    GIT_SHA=$(git rev-parse --short HEAD)
+                    mkdir -p artifacts
+                    echo "Build: ${BUILD_NUMBER}" > artifacts/build-info.txt
+                    echo "Git SHA: ${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "Published images:" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" > artifacts/images.txt
+                    echo "${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/images.txt
+                    echo "${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/images.txt
+                '''
+            }
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true, allowEmptyArchive: true
+        }
+
+        success {
+            echo 'Pipeline completed successfully.'
+        }
+
+        failure {
+            echo 'Pipeline failed.'
         }
     }
 }
