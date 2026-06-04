@@ -1,0 +1,35 @@
+version: '3'
+services:
+  vote-blue:
+    image: ${DOCKER_USERNAME}/voting-vote:latest
+    ports:
+      - "8080:80"
+    networks:
+      - blue-net
+
+  result-blue:
+    image: ${DOCKER_USERNAME}/voting-result:latest
+    ports:
+      - "8081:80"
+    networks:
+      - blue-net
+
+  worker-blue:
+    image: ${DOCKER_USERNAME}/voting-worker:latest
+    networks:
+      - blue-net
+
+  redis-blue:
+    image: redis:alpine
+    networks:
+      - blue-net
+
+  db-blue:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - blue-net
+
+networks:
+  blue-net:

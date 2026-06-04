@@ -46,7 +46,6 @@ pipeline {
                     echo 'Running Trivy scans and saving reports...'
                     sh '''
                         mkdir -p trivy-reports
-
                         for service in vote result worker; do
                             image=${DOCKER_USERNAME}/voting-${service}:latest
                             echo "Scanning image: $image"
@@ -99,6 +98,21 @@ pipeline {
                         docker push ${DOCKER_USERNAME}/voting-worker:latest
                         docker logout
                     '''
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sshagent(credentials: ['deploy-host-ssh']) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no ubuntu@${DEPLOY_HOST} \
+                                "cd ~/project-02-jenkins-cicd-voting-app && \
+                                 export DOCKER_USERNAME=${DOCKER_USERNAME} && \
+                                 bash blue-green/deploy.sh"
+                        '''
+                    }
                 }
             }
         }

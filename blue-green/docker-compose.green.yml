@@ -1,0 +1,35 @@
+version: '3'
+services:
+  vote-green:
+    image: ${DOCKER_USERNAME}/voting-vote:latest
+    ports:
+      - "8180:80"
+    networks:
+      - green-net
+
+  result-green:
+    image: ${DOCKER_USERNAME}/voting-result:latest
+    ports:
+      - "8181:80"
+    networks:
+      - green-net
+
+  worker-green:
+    image: ${DOCKER_USERNAME}/voting-worker:latest
+    networks:
+      - green-net
+
+  redis-green:
+    image: redis:alpine
+    networks:
+      - green-net
+
+  db-green:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - green-net
+
+networks:
+  green-net:
