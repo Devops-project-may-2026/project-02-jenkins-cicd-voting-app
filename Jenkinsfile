@@ -16,17 +16,10 @@ pipeline {
             }
         }
 
-        stage('Build Docker Images') {
-            steps {
-                echo 'Building application services with Docker Compose...'
-                sh 'docker compose build vote result worker'
-            }
-        }
-
         stage('Structure Validation') {
             steps {
-                echo 'Running basic project structure validation...'
-                // TODO: replace with real unit/integration tests in a future epic
+                echo 'Validating project structure...'
+                // TODO: replace with real unit/integration tests in Epic 4
                 sh 'test -f docker-compose.yml'
                 sh 'test -d vote'
                 sh 'test -d result'
@@ -34,74 +27,101 @@ pipeline {
             }
         }
 
+        stage('Build') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        GIT_SHA=$(git rev-parse --short HEAD)
+                        docker build -t ${DOCKER_USERNAME}/voting-vote:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-vote:latest ./vote
+                        docker build -t ${DOCKER_USERNAME}/voting-result:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-result:latest ./result
+                        docker build --platform linux/amd64 -t ${DOCKER_USERNAME}/voting-worker:${GIT_SHA} -t ${DOCKER_USERNAME}/voting-worker:latest ./worker
+                    '''
+                }
+            }
+        }
+
         stage('Trivy Security Scan Reports') {
             steps {
-                echo 'Running Trivy scans and saving reports...'
-                sh '''
-                    mkdir -p trivy-reports
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Running Trivy scans and saving reports...'
+                    sh '''
+                        mkdir -p trivy-reports
 
-                    for image in \
-                        project-02-jenkins-cicd-voting-app-vote:latest \
-                        project-02-jenkins-cicd-voting-app-result:latest \
-                        project-02-jenkins-cicd-voting-app-worker:latest
-                    do
-                        report_name=$(echo "$image" | sed 's/project-02-jenkins-cicd-voting-app-//; s/:latest//')
-
-                        echo "Scanning image: $image"
-
-                        docker run --rm \
-                            -v /var/run/docker.sock:/var/run/docker.sock \
-                            -v "$WORKSPACE/trivy-reports:/reports" \
-                            aquasec/trivy:latest image \
-                            --severity HIGH,CRITICAL \
-                            --format table \
-                            --exit-code 0 \
-                            -o /reports/${report_name}-trivy-report.txt \
-                            $image
-                    done
-                '''
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Scanning image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                -v "$WORKSPACE/trivy-reports:/reports" \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --format table \
+                                --exit-code 0 \
+                                -o /reports/${service}-trivy-report.txt \
+                                $image
+                        done
+                    '''
+                }
             }
         }
 
         stage('Trivy Security Gate') {
             steps {
-                echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
-                sh '''
-                    for image in \
-                        project-02-jenkins-cicd-voting-app-vote:latest \
-                        project-02-jenkins-cicd-voting-app-result:latest \
-                        project-02-jenkins-cicd-voting-app-worker:latest
-                    do
-                        echo "Checking security gate for image: $image"
-
-                        docker run --rm \
-                            -v /var/run/docker.sock:/var/run/docker.sock \
-                            aquasec/trivy:latest image \
-                            --severity HIGH,CRITICAL \
-                            --exit-code 1 \
-                            $image
-                    done
-                '''
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo 'Enforcing security gate: fail on HIGH or CRITICAL vulnerabilities...'
+                    sh '''
+                        for service in vote result worker; do
+                            image=${DOCKER_USERNAME}/voting-${service}:latest
+                            echo "Checking security gate for image: $image"
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                aquasec/trivy:latest image \
+                                --severity HIGH,CRITICAL \
+                                --exit-code 1 \
+                                $image
+                        done
+                    '''
+                }
             }
         }
 
-        stage('Create Build Artifact') {
+        stage('Push') {
             steps {
-                echo 'Creating basic build artifact...'
-                sh '''
-                    mkdir -p artifacts
-                    echo "Build Number: ${BUILD_NUMBER}" > artifacts/build-info.txt
-                    echo "Git Branch: ${BRANCH_NAME}" >> artifacts/build-info.txt
-                    echo "Build completed at: $(date)" >> artifacts/build-info.txt
-                    docker compose config > artifacts/docker-compose-config.txt
-                '''
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        GIT_SHA=$(git rev-parse --short HEAD)
+                        echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+                        docker push ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-vote:latest
+                        docker push ${DOCKER_USERNAME}/voting-result:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-result:latest
+                        docker push ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}
+                        docker push ${DOCKER_USERNAME}/voting-worker:latest
+                        docker logout
+                    '''
+                }
             }
         }
     }
 
     post {
         always {
-            archiveArtifacts artifacts: 'artifacts/*.txt', fingerprint: true, allowEmptyArchive: true
+            withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                sh '''
+                    GIT_SHA=$(git rev-parse --short HEAD)
+                    mkdir -p artifacts
+                    echo "Build: ${BUILD_NUMBER}" > artifacts/build-info.txt
+                    echo "Git SHA: ${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "Published images:" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "  ${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/build-info.txt
+                    echo "${DOCKER_USERNAME}/voting-vote:${GIT_SHA}" > artifacts/images.txt
+                    echo "${DOCKER_USERNAME}/voting-result:${GIT_SHA}" >> artifacts/images.txt
+                    echo "${DOCKER_USERNAME}/voting-worker:${GIT_SHA}" >> artifacts/images.txt
+                '''
+            }
+            archiveArtifacts artifacts: 'artifacts/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'trivy-reports/*.txt', fingerprint: true, allowEmptyArchive: true
         }
 
