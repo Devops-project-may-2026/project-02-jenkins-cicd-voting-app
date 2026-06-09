@@ -2,34 +2,53 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_HUB_CREDENTIALS = credentials('dockerhub')
-        DOCKER_HUB_USERNAME = 'marta77784'
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+        DOCKERHUB_USERNAME = 'marta77784'
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+                echo 'Code checked out successfully'
             }
         }
 
-        stage('Build Images') {
+        stage('Build Docker Images') {
             steps {
-                sh 'docker build -t $DOCKER_HUB_USERNAME/vote:latest ./vote'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/result:latest ./result'
-                sh 'docker build -t $DOCKER_HUB_USERNAME/worker:latest ./worker'
+                sh 'docker build -t ${DOCKERHUB_USERNAME}/vote:${IMAGE_TAG} ./vote'
+                sh 'docker build -t ${DOCKERHUB_USERNAME}/result:${IMAGE_TAG} ./result'
+                sh 'docker build -t ${DOCKERHUB_USERNAME}/worker:${IMAGE_TAG} ./worker'
             }
         }
 
-        stage('Push Images') {
+        stage('Push to DockerHub') {
             steps {
-                sh 'echo $DOCKER_HUB_CREDENTIALS_PSW | docker login -u $DOCKER_HUB_USERNAME --password-stdin'
-                sh 'docker push $DOCKER_HUB_USERNAME/vote:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/result:latest'
-                sh 'docker push $DOCKER_HUB_USERNAME/worker:latest'
-                                                                                       sh 'docker-compose down --remove-orphans || true'
-                sh 'docker-compose up -d'
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh 'docker push ${DOCKERHUB_USERNAME}/vote:${IMAGE_TAG}'
+                sh 'docker push ${DOCKERHUB_USERNAME}/result:${IMAGE_TAG}'
+                sh 'docker push ${DOCKERHUB_USERNAME}/worker:${IMAGE_TAG}'
             }
+        }
+
+        stage('Archive Build Info') {
+            steps {
+                sh 'echo "Build: ${IMAGE_TAG}" > build-info.txt'
+                sh 'echo "vote:${IMAGE_TAG}" >> build-info.txt'
+                sh 'echo "result:${IMAGE_TAG}" >> build-info.txt'
+                sh 'echo "worker:${IMAGE_TAG}" >> build-info.txt'
+                archiveArtifacts artifacts: 'build-info.txt'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
         }
     }
 }
